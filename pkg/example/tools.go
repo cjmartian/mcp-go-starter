@@ -3,6 +3,8 @@ package example
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 
 	"github.com/spf13/viper"
 
@@ -33,6 +35,46 @@ func NewHelloTool() (mcp.Tool, server.ToolHandlerFunc) {
 			greeting = "Hello"
 		}
 		return mcp.NewToolResultText(fmt.Sprintf("%s, %s!", greeting, name)), nil
+	}
+	return tool, handler
+}
+
+// NewWikiSummaryTool returns the wiki API tool and its handler
+func NewWikiSummaryTool() (mcp.Tool, server.ToolHandlerFunc) {
+	tool := mcp.NewTool("wiki_summary",
+		mcp.WithDescription("Fetch a summary from Wikipedia"),
+		mcp.WithToolAnnotation(mcp.ToolAnnotation{
+			Title:        "Wikipedia API",
+			ReadOnlyHint: true,
+		}),
+		mcp.WithString("page",
+			mcp.Description("A page to fetch summaries for"),
+			mcp.Required(),
+		),
+	)
+	handler := func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		page, ok := request.Params.Arguments["page"].(string)
+		if !ok || page == "" {
+			return mcp.NewToolResultError("page must be a string"), nil
+		}
+		// Here you would typically call the Wikipedia API to fetch the summary
+		url := fmt.Sprintf("https://en.wikipedia.org/api/rest_v1/page/summary/%s", page)
+		resp, err := http.Get(url)
+		if err != nil {
+			return mcp.NewToolResultError("failed to fetch summary from Wikipedia"), nil
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return mcp.NewToolResultError(fmt.Sprintf("Wikipedia API returned status: %d", resp.StatusCode)), nil
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return mcp.NewToolResultError("failed to read response body"), nil
+		}
+
+		return mcp.NewToolResultText(string(body)), nil
 	}
 	return tool, handler
 }
@@ -68,4 +110,8 @@ func RegisterTools(s *server.MCPServer) {
 
 	colorTool, colorHandler := NewEnumTool()
 	s.AddTool(colorTool, colorHandler)
+
+	wikiSummaryTool, wikiHandler := NewWikiSummaryTool()
+	s.AddTool(wikiSummaryTool, wikiHandler)
+
 }
